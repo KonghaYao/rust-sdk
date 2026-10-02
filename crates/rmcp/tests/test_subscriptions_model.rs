@@ -54,6 +54,23 @@ fn subscription_filter_omits_empty_resource_intersection() {
 }
 
 #[test]
+fn task_filter_round_trips_and_intersects_by_id() {
+    let requested = SubscriptionFilter::builder()
+        .task_ids(["task-1", "task-2"])
+        .build();
+    let accepted = SubscriptionFilter::builder().task_id("task-2").build();
+    assert_eq!(
+        serde_json::to_value(&requested).unwrap(),
+        json!({ "taskIds": ["task-1", "task-2"] })
+    );
+    assert_eq!(requested.intersection(&accepted), accepted);
+    assert!(accepted.is_subset_of(&requested));
+    let decoded: SubscriptionFilter =
+        serde_json::from_value(json!({ "taskIds": ["task-2"] })).unwrap();
+    assert_eq!(decoded, accepted);
+}
+
+#[test]
 fn listen_request_round_trips_required_fields_and_arbitrary_metadata() {
     let mut request = SubscriptionsListenRequest::new(SubscriptionsListenRequestParams::new(
         SubscriptionFilter::builder().prompts_list_changed().build(),

@@ -2090,6 +2090,10 @@ pub struct SubscriptionFilter {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schemars", schemars(with = "Vec<String>"))]
     pub resource_subscriptions: Option<Vec<String>>,
+    /// Task IDs to receive `notifications/tasks` for (SEP-2663).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "schemars", schemars(with = "Vec<String>"))]
+    pub task_ids: Option<Vec<String>>,
 }
 
 impl SubscriptionFilter {
@@ -2118,6 +2122,19 @@ impl SubscriptionFilter {
                 })
             })
             .filter(|uris: &Vec<String>| !uris.is_empty());
+        let task_ids = self
+            .task_ids
+            .as_ref()
+            .and_then(|requested| {
+                other.task_ids.as_ref().map(|accepted| {
+                    requested
+                        .iter()
+                        .filter(|id| accepted.contains(id))
+                        .cloned()
+                        .collect()
+                })
+            })
+            .filter(|ids: &Vec<String>| !ids.is_empty());
         Self {
             tools_list_changed: (self.tools_list_changed == Some(true)
                 && other.tools_list_changed == Some(true))
@@ -2129,6 +2146,7 @@ impl SubscriptionFilter {
                 && other.resources_list_changed == Some(true))
             .then_some(true),
             resource_subscriptions,
+            task_ids,
         }
     }
 
@@ -2149,7 +2167,15 @@ impl SubscriptionFilter {
                     .is_some_and(|requested| requested.contains(uri))
             })
         });
-        booleans_are_subset && resources_are_subset
+        let tasks_are_subset = self.task_ids.as_ref().is_none_or(|accepted| {
+            accepted.iter().all(|id| {
+                other
+                    .task_ids
+                    .as_ref()
+                    .is_some_and(|requested| requested.contains(id))
+            })
+        });
+        booleans_are_subset && resources_are_subset && tasks_are_subset
     }
 
     /// Return the requested notification types advertised by server capabilities.
@@ -2178,6 +2204,10 @@ impl SubscriptionFilter {
                 .as_ref()
                 .is_some_and(|resources| resources.subscribe == Some(true))
                 .then(|| self.resource_subscriptions.clone())
+                .flatten(),
+            task_ids: capabilities
+                .supports_tasks()
+                .then(|| self.task_ids.clone())
                 .flatten(),
         }
     }
@@ -2224,6 +2254,18 @@ impl SubscriptionFilterBuilder {
             .resource_subscriptions
             .get_or_insert_default()
             .push(uri.into());
+        self
+    }
+
+    /// Opt in to status notifications for all supplied task IDs.
+    pub fn task_ids(mut self, ids: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        self.filter.task_ids = Some(ids.into_iter().map(Into::into).collect());
+        self
+    }
+
+    /// Add one task ID to the status subscription set.
+    pub fn task_id(mut self, id: impl Into<String>) -> Self {
+        self.filter.task_ids.get_or_insert_default().push(id.into());
         self
     }
 

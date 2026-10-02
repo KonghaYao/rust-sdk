@@ -149,6 +149,15 @@ impl<H: ServerHandler> Service<RoleServer> for H {
                     Err(McpError::method_not_found::<SubscriptionsListenRequestMethod>())
                 } else {
                     let requested = request.params.notifications;
+                    if requested.task_ids.is_some()
+                        && !context
+                            .client_capabilities()
+                            .is_some_and(|caps| caps.supports_tasks())
+                    {
+                        return Err(McpError::missing_required_client_capability(
+                            ClientCapabilities::builder().enable_tasks().build(),
+                        ));
+                    }
                     let Some(candidate) = self.accepted_subscription_filter(&requested) else {
                         return Err(
                             McpError::method_not_found::<SubscriptionsListenRequestMethod>(),
@@ -158,6 +167,14 @@ impl<H: ServerHandler> Service<RoleServer> for H {
                     let advertised = requested.supported_by(&server_info.capabilities);
                     let handler_accepted = requested.intersection(&candidate);
                     let accepted = handler_accepted.intersection(&advertised);
+                    // Reuse tasks/get authorization for every accepted task ID
+                    // before acknowledging the subscription.
+                    if let Some(task_ids) = accepted.task_ids.as_ref() {
+                        for task_id in task_ids {
+                            self.get_task(GetTaskParams::new(task_id), context.clone())
+                                .await?;
+                        }
+                    }
                     if accepted != handler_accepted {
                         tracing::debug!(
                             requested_resource_count = requested

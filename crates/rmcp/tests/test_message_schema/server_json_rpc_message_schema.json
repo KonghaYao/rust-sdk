@@ -3410,6 +3410,13 @@
         "resourcesListChanged": {
           "type": "boolean"
         },
+        "taskIds": {
+          "description": "Task IDs to receive `notifications/tasks` for (SEP-2663).",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "toolsListChanged": {
           "type": "boolean"
         }

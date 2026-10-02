@@ -22,7 +22,7 @@ use crate::{
         ResourceUpdatedNotification, ResourceUpdatedNotificationParam, ServerConfig,
         ServerNotification, ServerRequest, ServerResult, SubscriptionFilter,
         SubscriptionsAcknowledgedNotification, SubscriptionsAcknowledgedNotificationParams,
-        ToolListChangedNotification,
+        TaskStatusNotification, TaskStatusNotificationParams, ToolListChangedNotification,
     },
     transport::DynamicTransportError,
 };
@@ -236,15 +236,17 @@ impl SubscriptionSink {
                     "notifications/message",
                 ));
             }
-            // SEP-2663 task status notifications are not yet routable through
-            // `subscriptions/listen`: `SubscriptionFilter` has no `taskIds`
-            // field yet (the upstream conformance check for this flow is also
-            // still skipped, pending the subscriptions/listen rewrite).
-            // Clients currently observe task state by polling `tasks/get`.
-            ServerNotification::TaskStatusNotification(_) => {
-                return Err(SubscriptionSendError::UnsupportedNotification(
-                    "notifications/tasks",
-                ));
+            ServerNotification::TaskStatusNotification(update) => {
+                let accepted = self
+                    .accepted
+                    .task_ids
+                    .as_ref()
+                    .is_some_and(|ids| ids.contains(&update.params.task.task.task_id));
+                if !accepted {
+                    return Err(SubscriptionSendError::NotificationNotAccepted(
+                        "notifications/tasks",
+                    ));
+                }
             }
             ServerNotification::CustomNotification(_) => {
                 return Err(SubscriptionSendError::UnsupportedNotification(
@@ -316,6 +318,17 @@ impl SubscriptionSink {
     ) -> Result<(), SubscriptionSendError> {
         self.send(ServerNotification::ResourceUpdatedNotification(
             ResourceUpdatedNotification::new(ResourceUpdatedNotificationParam::new(uri)),
+        ))
+        .await
+    }
+
+    /// Send the complete current task state to a subscriber for its task ID.
+    pub async fn notify_task_status(
+        &self,
+        task: crate::model::DetailedTask,
+    ) -> Result<(), SubscriptionSendError> {
+        self.send(ServerNotification::TaskStatusNotification(
+            TaskStatusNotification::new(TaskStatusNotificationParams::new(task)),
         ))
         .await
     }
